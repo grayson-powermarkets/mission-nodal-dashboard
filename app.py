@@ -74,56 +74,103 @@ if con is None:
     st.info("Load a .duckdb to begin.")
     st.stop()
 
+# ---- Guard: make sure required tables exist ----
+def table_exists(_con, name: str) -> bool:
+    try:
+        return name in _con.execute("SHOW TABLES").fetchdf()["name"].tolist()
+    except Exception:
+        return False
+
+required = ["annual_metrics", "monthly_metrics"]
+missing = [t for t in required if not table_exists(con, t)]
+if missing:
+    st.error(f"This database is missing required tables: {', '.join(missing)}. Re-run the ETL to produce them.")
+    st.stop()
+
 # --------------------------- #
 # Introspect lists from DB (dynamic)
 # --------------------------- #
+# ---- Fingerprint so cache invalidates when you upload a new DB ----
+def db_fingerprint(_con) -> str:
+    # Prefer run_info if present; else rowcount of annual_metrics
+    try:
+        f = _con.execute("SELECT COALESCE(MAX(run_date), '0') AS f FROM run_info").fetchdf()["f"][0]
+        return str(f)
+    except Exception:
+        n = _con.execute("SELECT COUNT(*) AS n FROM annual_metrics").fetchdf()["n"][0]
+        return f"rows:{n}"
+
 @st.cache_data(show_spinner=False)
-def get_lists(_con):
+def get_lists_cached(_con, fp: str):
     mkts = _con.execute(
         "SELECT DISTINCT forecast_market_name FROM annual_metrics ORDER BY 1"
     ).fetchdf()["forecast_market_name"].tolist()
-
-    yrs = _con.execute(
+    yrs  = _con.execute(
         "SELECT DISTINCT year FROM annual_metrics ORDER BY 1"
     ).fetchdf()["year"].tolist()
-
-    scs = _con.execute(
+    scs  = _con.execute(
         "SELECT DISTINCT scenario FROM annual_metrics ORDER BY 1"
     ).fetchdf()["scenario"].tolist()
-
-    nds = _con.execute(
+    nds  = _con.execute(
         "SELECT DISTINCT price_node_name FROM annual_metrics ORDER BY 1"
     ).fetchdf()["price_node_name"].tolist()
-
     return mkts, yrs, scs, nds
 
-markets, years, scenarios, nodes = get_lists(con)
+fp = db_fingerprint(con)
+markets_all, years_all, scenarios_all, nodes_all = get_lists_cached(con, fp)
 
 # --------------------------- #
-# Single, consolidated filters
+# Single, consolidated filters (market-scoped)
 # --------------------------- #
+
+# Helpers to scope lists by market
+def list_years_for_market(_con, mkt):
+    return _con.execute(
+        "SELECT DISTINCT year FROM annual_metrics WHERE forecast_market_name = ? ORDER BY 1",
+        [mkt],
+    ).fetchdf()["year"].tolist()
+
+def list_scenarios_for_market(_con, mkt):
+    return _con.execute(
+        "SELECT DISTINCT scenario FROM annual_metrics WHERE forecast_market_name = ? ORDER BY 1",
+        [mkt],
+    ).fetchdf()["scenario"].tolist()
+
+def list_nodes_for_market(_con, mkt):
+    return _con.execute(
+        "SELECT DISTINCT price_node_name FROM annual_metrics WHERE forecast_market_name = ? ORDER BY 1",
+        [mkt],
+    ).fetchdf()["price_node_name"].tolist()
+
 filters = st.container()
 colA, colB = filters.columns([1, 1.2])
 
+# 1) Market (global list)
 with colA:
-    market = st.selectbox("Market", markets, index=0 if markets else None)
-    year   = st.selectbox("Year", years, index=0 if years else None)
+    market = st.selectbox("Market", markets_all, index=0 if markets_all else None)
+
+# 2) Market-scoped lists
+years     = list_years_for_market(con, market) if market else []
+scenarios = list_scenarios_for_market(con, market) if market else []
+nodes     = list_nodes_for_market(con, market) if market else []
+
+with colA:
+    year = st.selectbox("Year", years, index=0 if years else None)
 
 with colB:
-    scenario  = st.selectbox("Scenario", scenarios, index=0 if scenarios else None)
+    scenario = st.selectbox("Scenario", scenarios, index=0 if scenarios else None)
     sel_nodes = st.multiselect(
         "Nodes",
         options=nodes,
-        default=nodes[: min(10, len(nodes))],
+        default=nodes[:min(10, len(nodes))] if nodes else [],
         help="Select one or more nodes to analyze",
     )
 
 if not sel_nodes:
     st.warning("Select at least one node to continue.")
     st.stop()
-
-# Register selection as a temp table on *this* connection
-nodes_df = pd.DataFrame({"node": [str(x) for x in sel_nodes]})
+# Register selection as a temp table on *this* connection (deduped/sanitized)
+nodes_df = pd.DataFrame({"node": pd.unique([str(x) for x in sel_nodes])})
 try:
     con.unregister("nodes_df")
 except Exception:
