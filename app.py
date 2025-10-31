@@ -133,7 +133,6 @@ con.register("nodes_df", nodes_df)
 # --------------------------- #
 # Queries (JOIN nodes_df)
 # --------------------------- #
-@st.cache_data(show_spinner=False)
 def q_monthly_slice(_con, mkt, yr, scen):
     return _con.execute(
         """
@@ -148,7 +147,6 @@ def q_monthly_slice(_con, mkt, yr, scen):
         [mkt, int(yr), scen],
     ).fetchdf()
 
-@st.cache_data(show_spinner=False)
 def q_annual_for_nodes(_con, mkt):
     return _con.execute(
         """
@@ -162,9 +160,7 @@ def q_annual_for_nodes(_con, mkt):
         [mkt],
     ).fetchdf()
 
-@st.cache_data(show_spinner=False)
 def q_hourly_slice(_con, mkt, yr, scen):
-    # hourly table is optional — if not present, return empty df
     try:
         return _con.execute(
             """
