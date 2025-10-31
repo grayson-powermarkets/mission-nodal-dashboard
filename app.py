@@ -1,20 +1,21 @@
-import io, zipfile, urllib.request, json, re
+import tempfile, os
+import streamlit as st
 from pathlib import Path
 import duckdb
-import pandas as pd
-import plotly.express as px
-import streamlit as st
+import urllib.request
 
-st.set_page_config(page_title="Mission • WoodMac Dashboard", layout="wide")
-
-@st.cache_data(show_spinner=False)
+# Cache the CONNECTION as a resource (not data)
+@st.cache_resource(show_spinner=False)
 def load_duckdb_from_bytes(data: bytes):
-    path = Path(st.session_state.get("db_path", "data.duckdb"))
+    # write to a stable temp path for this session
+    tmpdir = tempfile.gettempdir()
+    path = Path(tmpdir) / "uploaded_data.duckdb"
     path.write_bytes(data)
+    # open a read-only connection; cached as a resource
     con = duckdb.connect(str(path), read_only=True)
     return con
 
-@st.cache_data(show_spinner=False)
+@st.cache_resource(show_spinner=False)
 def load_duckdb_from_url(url: str):
     with urllib.request.urlopen(url) as r:
         data = r.read()
