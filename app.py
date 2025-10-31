@@ -150,12 +150,19 @@ def q_monthly_slice(_con, mkt, yr, scen):
 def q_annual_for_nodes(_con, mkt):
     return _con.execute(
         """
-        SELECT a.forecast_market_name AS market, a.price_node_name AS node,
-               a.year, a.scenario, a.avg_price_dmwh, a.avg_basis_dmwh, a.tb2_dmwh, a.tb4_dmwh
+        SELECT
+            a.forecast_market_name AS market,
+            a.price_node_name      AS node,
+            a.year,
+            a.scenario,
+            a.avg_price_dmwh,
+            a.avg_basis_dmwh,
+            a.tb2_dmwh,
+            a.tb4_dmwh
         FROM annual_metrics a
         JOIN nodes_df n ON a.price_node_name = n.node
         WHERE a.forecast_market_name = ?
-        ORDER BY a.node, a.year, a.scenario
+        ORDER BY node, year, scenario
         """,
         [mkt],
     ).fetchdf()
