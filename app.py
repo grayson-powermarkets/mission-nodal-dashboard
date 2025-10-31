@@ -67,6 +67,18 @@ if con is None:
     st.info("Load a .duckdb to begin.")
     st.stop()
 
+# --- Dynamic market/year/scenario lists ---
+markets = con.execute("SELECT DISTINCT forecast_market_name FROM annual_metrics ORDER BY forecast_market_name").fetchdf()["forecast_market_name"].tolist()
+years = sorted(con.execute("SELECT DISTINCT year FROM annual_metrics ORDER BY year").fetchdf()["year"].tolist())
+scenarios = con.execute("SELECT DISTINCT scenario FROM annual_metrics ORDER BY scenario").fetchdf()["scenario"].tolist()
+nodes = con.execute("SELECT DISTINCT price_node_name FROM annual_metrics ORDER BY price_node_name").fetchdf()["price_node_name"].tolist()
+
+# --- Streamlit selection widgets ---
+market = st.selectbox("Market", markets)
+year = st.selectbox("Year", years)
+scenario = st.selectbox("Scenario", scenarios)
+sel_nodes = st.multiselect("Nodes", nodes, default=nodes[: min(10, len(nodes))])
+
 # Inspect what we have
 tables = con.execute("SHOW TABLES").fetchdf()["name"].tolist()
 has_monthly = "monthly_metrics" in tables
@@ -90,14 +102,30 @@ col1, col2 = st.columns([2,3])
 with col1:
     markets = sorted(filters["market"].unique())
     market = st.selectbox("Market", markets)
-    years = sorted(filters["year"].unique())
     year = st.selectbox("Year", years)
-    scenarios = sorted(filters["scenario"].unique())
     scenario = st.selectbox("Scenario", scenarios)
+    sel_nodes = st.multiselect("Nodes", nodes, default=nodes[: min(10, len(nodes))])
+    scenarios = sorted(filters["scenario"].unique())
 
 with col2:
     nodes = sorted(filters.loc[filters["market"]==market, "node"].unique())
     sel_nodes = st.multiselect("Nodes", nodes, default=nodes[: min(10, len(nodes))])
+
+# Guard: must select at least one node
+if not sel_nodes:
+    st.warning("Select at least one node to continue.")
+    st.stop()
+
+# Build a tiny table and register it on THIS connection
+import pandas as pd
+nodes_df = pd.DataFrame({"node": [str(x) for x in sel_nodes]})
+
+# Re-register every run so it's fresh
+try:
+    con.unregister("nodes_df")   # duckdb >= 0.7 supports this
+except Exception:
+    pass
+con.register("nodes_df", nodes_df)
 
 # Query monthly slice
 q_monthly = con.execute("""
