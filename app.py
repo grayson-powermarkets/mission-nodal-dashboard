@@ -101,9 +101,14 @@ with col2:
 
 # Query monthly slice
 q_monthly = con.execute("""
-    SELECT * FROM monthly_metrics
-    WHERE forecast_market_name = ? AND year = ? AND scenario = ? AND price_node_name IN ?
-""", [market, year, scenario, sel_nodes]).fetchdf()
+WITH nodes(node) AS (SELECT * FROM UNNEST(?))
+SELECT *
+FROM monthly_metrics m
+JOIN nodes n ON m.price_node_name = n.node
+WHERE m.forecast_market_name = ?
+    AND m.year = ?
+    AND m.scenario = ?
+""", [sel_nodes, market, year, scenario]).fetchdf()
 
 # KPIs
 c1, c2, c3, c4 = st.columns(4)
@@ -118,11 +123,13 @@ else:
 # Charts
 st.subheader("Scenario comparison (annual)")
 annual = con.execute("""
-    SELECT forecast_market_name AS market, price_node_name AS node,
-           year, scenario, avg_price_dmwh, avg_basis_dmwh, tb2_dmwh, tb4_dmwh
-    FROM annual_metrics
-    WHERE forecast_market_name = ? AND price_node_name IN ?
-""", [market, sel_nodes]).fetchdf()
+WITH nodes(node) AS (SELECT * FROM UNNEST(?))
+    SELECT a.forecast_market_name AS market, a.price_node_name AS node,
+           a.year, a.scenario, a.avg_price_dmwh, a.avg_basis_dmwh, a.tb2_dmwh, a.tb4_dmwh
+    FROM annual_metrics a
+    JOIN nodes n ON a.price_node_name = n.node
+    WHERE a.forecast_market_name = ?
+    """, [sel_nodes, market]).fetchdf()
 
 if not annual.empty:
     g = px.line(annual, x="year", y="avg_price_dmwh", color="scenario",
@@ -172,11 +179,15 @@ else:
         else:
             # pull hourly node + scenario + year
             hourly = con.execute("""
-                SELECT price_node_name AS node, forecast_market_name AS market,
-                       year, month, day, hour, scenario, price_dmwh
-                FROM hourly_prices
-                WHERE forecast_market_name = ? AND year = ? AND scenario = ? AND price_node_name IN ?
-            """, [market, year, scenario, sel_nodes]).fetchdf()
+            WITH nodes(node) AS (SELECT * FROM UNNEST(?))
+            SELECT h.price_node_name AS node, h.forecast_market_name AS market,
+               h.year, h.month, h.day, h.hour, h.scenario, h.price_dmwh
+            FROM hourly_prices h
+            JOIN nodes n ON h.price_node_name = n.node
+            WHERE h.forecast_market_name = ?
+              AND h.year = ?
+              AND h.scenario = ?
+            """, [sel_nodes, market, year, scenario]).fetchdf()
 
             # Build a UTC timestamp for hourly rows
             # Assumes data is in UTC; if not, adjust here.
