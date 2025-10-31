@@ -101,14 +101,31 @@ with col2:
 
 # Query monthly slice
 q_monthly = con.execute("""
-WITH nodes(node) AS (SELECT * FROM UNNEST(?))
-SELECT *
+SELECT m.*
 FROM monthly_metrics m
-JOIN nodes n ON m.price_node_name = n.node
+JOIN nodes_df n ON m.price_node_name = n.node
 WHERE m.forecast_market_name = ?
-    AND m.year = ?
-    AND m.scenario = ?
-""", [sel_nodes, market, year, scenario]).fetchdf()
+  AND m.year = ?
+  AND m.scenario = ?
+""", [market, int(year), scenario]).fetchdf()
+
+annual = con.execute("""
+SELECT a.forecast_market_name AS market, a.price_node_name AS node,
+       a.year, a.scenario, a.avg_price_dmwh, a.avg_basis_dmwh, a.tb2_dmwh, a.tb4_dmwh
+FROM annual_metrics a
+JOIN nodes_df n ON a.price_node_name = n.node
+WHERE a.forecast_market_name = ?
+""", [market]).fetchdf()
+
+hourly = con.execute("""
+SELECT h.price_node_name AS node, h.forecast_market_name AS market,
+       h.year, h.month, h.day, h.hour, h.scenario, h.price_dmwh
+FROM hourly_prices h
+JOIN nodes_df n ON h.price_node_name = n.node
+WHERE h.forecast_market_name = ?
+  AND h.year = ?
+  AND h.scenario = ?
+""", [market, int(year), scenario]).fetchdf()
 
 # KPIs
 c1, c2, c3, c4 = st.columns(4)
